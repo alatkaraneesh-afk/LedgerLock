@@ -106,14 +106,36 @@ st.markdown("---")
 uploaded_file = st.file_uploader("Upload Company Ledger (CSV)", type="csv")
 
 if uploaded_file:
+    # 1. Read the raw data
     df_raw = pd.read_csv(uploaded_file)
-    st.write("### 🧩 Map Your Columns (Required)")
+    
+    # 2. THE FIX: If the first row looks like data instead of headers, 
+    # we tell Pandas to skip until it finds words like 'Date' or 'Vendor'
+    if not any(x in df_raw.columns.str.lower() for x in ['date', 'vendor', 'amount']):
+        # Attempt to find the header row automatically
+        for i in range(len(df_raw)):
+            row_values = df_raw.iloc[i].astype(str).str.lower().tolist()
+            if 'date' in row_values or 'vendor' in row_values:
+                df_raw.columns = df_raw.iloc[i]
+                df_raw = df_raw.iloc[i+1:].reset_index(drop=True)
+                break
+
+    # 3. Clean up the names (removes the | bars and spaces)
+    df_raw.columns = [re.sub(r'[^a-zA-Z0-9]', '', str(col)) for col in df_raw.columns]
+    
+    st.write("### 🧩 Map Your Columns")
     columns = df_raw.columns.tolist()
 
+    # Smart Defaults: it will look for 'Date' even if it's 'DATE' or '  date  '
+    def get_default(target, cols):
+        for i, c in enumerate(cols):
+            if target.lower() in c.lower(): return i
+        return 0
+
     col_a, col_b, col_c = st.columns(3)
-    date_col = col_a.selectbox("Select Date Column", columns)
-    vendor_col = col_b.selectbox("Select Vendor Column", columns)
-    amount_col = col_c.selectbox("Select Amount Column", columns)
+    date_col = col_a.selectbox("Date Column", columns, index=get_default('date', columns))
+    vendor_col = col_b.selectbox("Vendor Column", columns, index=get_default('vendor', columns))
+    amount_col = col_c.selectbox("Amount Column", columns, index=get_default('amount', columns))
 
     if st.button("🚀 Run Forensic Audit"):
         df_clean = pd.DataFrame({
