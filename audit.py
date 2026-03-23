@@ -178,7 +178,7 @@ if st.button("🚀 Run Forensic Audit"):
                         "user_email": "guest@example.com" # Matches your screenshot
                     }
                     # Pushing to 'auditreal' as seen in your screenshot
-                    supabase.table("auditreal").insert(data_to_save).execute()
+                    supabase.table("audits").insert(data_to_save).execute()
                 except Exception as e:
                     # This will show you the EXACT error (e.g., "Column not found")
                     st.error(f"Cloud Save Error: {e}")
