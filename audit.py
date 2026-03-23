@@ -105,12 +105,26 @@ st.markdown("---")
 
 uploaded_file = st.file_uploader("Upload Company Ledger (CSV)", type="csv")
 if uploaded_file:
-    # THE FIX: sep=None and engine='python' tells Pandas to GUESS the delimiter
-    # it will find ',', ';', or '|' automatically.
-    df_raw = pd.read_csv(uploaded_file, sep=None, engine='python')
+    import csv
+    import io
+
+    # 1. READ THE FILE MANUALLY TO "SMELL" THE DELIMITER
+    stringio = io.StringIO(uploaded_file.getvalue().decode("utf-8", errors="ignore"))
+    sample = stringio.read(2048) # Read a small chunk to analyze
+    stringio.seek(0) # Reset to start
+
+    try:
+        dialect = csv.Sniffer().sniff(sample)
+        sep = dialect.delimiter
+    except:
+        sep = ',' # Fallback to comma if sniffing fails
+
+    # 2. LOAD DATA WITH DETECTED SEPARATOR
+    df_raw = pd.read_csv(stringio, sep=sep)
     
-    # Clean the column names of any weird characters or spaces
-    df_raw.columns = [re.sub(r'[^a-zA-Z0-9]', '', str(col)) for col in df_raw.columns]
+    # 3. STRIP ALL WHITESPACE FROM COLUMN NAMES
+    # This fixes " Date " vs "Date"
+    df_raw.columns = [str(col).strip() for col in df_raw.columns]
     
     st.write("### 🧩 Map Your Columns")
     columns = df_raw.columns.tolist()
