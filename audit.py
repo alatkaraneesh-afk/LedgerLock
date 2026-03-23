@@ -1,4 +1,13 @@
 import streamlit as st
+from supabase import create_client, Client
+
+# This pulls the "Secrets" you saved in Step 1
+url = st.secrets["https://qlccarpreawzundfyjxi.supabase.co"]
+key = st.secrets["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFsY2NhcnByZWF3enVuZGZ5anhpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxNDQwMTEsImV4cCI6MjA4OTcyMDAxMX0._FN5jUDci83b1hrCPzk3IYybjI-Efv8eiflsRMk-odk"]
+
+# This creates the connection (the "Pipe")
+supabase: Client = create_client(url, key)
+import streamlit as st
 import pandas as pd
 from fpdf import FPDF
 import datetime
