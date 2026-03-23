@@ -21,38 +21,41 @@ def run_audit(df):
     processed_indices = set()
 
     # --- ALGORITHM 1: FUZZY DUPLICATE DETECTION ---
-    # We compare every transaction to every other transaction
-    for i, row in df.iterrows():
-        if i in processed_indices: 
-            continue
-        
-        for j, compare_row in df.iloc[i+1:].iterrows():
-            curr_idx = j + i + 1 # Track the actual index in the full dataframe
-            if curr_idx in processed_indices: 
-                continue
-            
-            # Check A: Are the amounts identical? (Most dupes are exact dollar amounts)
-            same_amount = abs(row['amount'] - compare_row['amount']) < 0.01
-            
-            # Check B: Name Similarity (token_set_ratio is best for messy business names)
-            name_score = fuzz.token_set_ratio(str(row['vendor']), str(compare_row['vendor']))
-            
-            # Check C: Proximity (Duplicates usually happen within a 3-day window)
-            days_diff = abs((row['date'] - compare_row['date']).days)
-            
-            # THE LOGIC GATE: If it looks like a duck and quacks like a duck...
-            if same_amount and name_score > 70 and days_diff <= 3:
-                findings.append({
-                    'date': row['date'],
-                    'vendor': f"{row['vendor']} / {compare_row['vendor']}",
-                    'amount': row['amount'],
-                    'issue': f"FUZZY DUPLICATE ({name_score}% Match)"
-                })
-                # Mark both as "found" so we don't count the same error twice
-                processed_indices.add(i)
-                processed_indices.add(curr_idx)
-                break 
+# Safer indexing version (fixes duplicate/missed detection bugs)
 
+for i in range(len(df)):
+    if i in processed_indices:
+        continue
+
+    for j in range(i + 1, len(df)):
+        if j in processed_indices:
+            continue
+
+        row = df.iloc[i]
+        compare_row = df.iloc[j]
+
+        # Check A: Are the amounts identical?
+        same_amount = abs(row['amount'] - compare_row['amount']) < 0.01
+
+        # Check B: Name Similarity
+        name_score = fuzz.token_set_ratio(str(row['vendor']), str(compare_row['vendor']))
+
+        # Check C: Date proximity
+        days_diff = abs((row['date'] - compare_row['date']).days)
+
+        # THE LOGIC GATE
+        if same_amount and name_score > 70 and days_diff <= 3:
+            findings.append({
+                'date': row['date'],
+                'vendor': f"{row['vendor']} / {compare_row['vendor']}",
+                'amount': row['amount'],
+                'issue': f"FUZZY DUPLICATE ({name_score}% Match)"
+            })
+
+            # Mark both as processed
+            processed_indices.add(i)
+            processed_indices.add(j)
+            break
     # --- ALGORITHM 2: PRICE ESCALATION DETECTION ---
     # Sort by vendor and date to see the "Timeline" of spending
     df_sorted = df.sort_values(['vendor', 'date'])
