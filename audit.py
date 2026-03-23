@@ -149,7 +149,7 @@ if uploaded_file:
     vendor_col = col_b.selectbox("Vendor Column", columns, index=get_default('vendor', columns))
     amount_col = col_c.selectbox("Amount Column", columns, index=get_default('amount', columns))
     
-    if st.button("🚀 Run Forensic Audit"):
+if st.button("🚀 Run Forensic Audit"):
         df_clean = pd.DataFrame({
             'date': df_raw[date_col],
             'vendor': df_raw[vendor_col],
@@ -166,16 +166,22 @@ if uploaded_file:
         df_clean['vendor'] = df_clean['vendor'].apply(clean_vendor)
 
         findings = run_audit(df_clean)
+        
         if not findings.empty:
-            # Loop through each finding and save it to the 'audits' table
+            # --- THE CLOUD SAVE ENGINE ---
             for _, row in findings.iterrows():
-                data_to_save = {
-                    "vendor": str(row['vendor']),
-                    "amount": float(row['amount']),
-                    "issue": str(row['issue'])
-                }
-                # This pushes the data to your Supabase table
-                supabase.table("auditreal").insert(data_to_save).execute()
+                try:
+                    data_to_save = {
+                        "vendor": str(row['vendor']),
+                        "amount": float(row['amount']),
+                        "issue": str(row['issue']),
+                        "user_email": "guest@example.com" # Matches your screenshot
+                    }
+                    # Pushing to 'auditreal' as seen in your screenshot
+                    supabase.table("auditreal").insert(data_to_save).execute()
+                except Exception as e:
+                    # This will show you the EXACT error (e.g., "Column not found")
+                    st.error(f"Cloud Save Error: {e}")
             
             st.success(f"📊 {len(findings)} findings backed up to the Cloud Ledger.")
         total_waste = findings['amount'].sum() if not findings.empty else 0
