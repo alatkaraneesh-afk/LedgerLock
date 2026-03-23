@@ -166,6 +166,18 @@ if uploaded_file:
         df_clean['vendor'] = df_clean['vendor'].apply(clean_vendor)
 
         findings = run_audit(df_clean)
+        if not findings.empty:
+            # Loop through each finding and save it to the 'audits' table
+            for _, row in findings.iterrows():
+                data_to_save = {
+                    "vendor": str(row['vendor']),
+                    "amount": float(row['amount']),
+                    "issue": str(row['issue'])
+                }
+                # This pushes the data to your Supabase table
+                supabase.table("audits").insert(data_to_save).execute()
+            
+            st.success(f"📊 {len(findings)} findings backed up to the Cloud Ledger.")
         total_waste = findings['amount'].sum() if not findings.empty else 0
         
         # KPIs
