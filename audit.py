@@ -75,6 +75,71 @@ for i in range(len(df)):
         })
 
     # Return as a clean DataFrame for the Streamlit UI
+    return pd.DataFrame(findings)def run_audit(df):
+    """
+    The LedgerLock Core Engine: 
+    Uses Fuzzy String Matching and Time-Window Analysis to find financial leakage.
+    """
+    # 1. Standardize and Clean Data
+    df.columns = df.columns.str.lower().str.strip()
+    df['date'] = pd.to_datetime(df['date'], errors='coerce')
+    df['amount'] = pd.to_numeric(df['amount'], errors='coerce')
+    
+    # Remove any rows with broken dates/amounts
+    df = df.dropna(subset=['date', 'amount'])
+    
+    findings = []
+    processed_indices = set()
+
+    # --- ALGORITHM 1: FUZZY DUPLICATE DETECTION ---
+    for i in range(len(df)):
+        if i in processed_indices:
+            continue
+
+        for j in range(i + 1, len(df)):
+            if j in processed_indices:
+                continue
+
+            row = df.iloc[i]
+            compare_row = df.iloc[j]
+
+            # Check A: Are the amounts identical?
+            same_amount = abs(row['amount'] - compare_row['amount']) < 0.01
+
+            # Check B: Name Similarity
+            name_score = fuzz.token_set_ratio(str(row['vendor']), str(compare_row['vendor']))
+
+            # Check C: Date proximity
+            days_diff = abs((row['date'] - compare_row['date']).days)
+
+            # Logic gate
+            if same_amount and name_score > 70 and days_diff <= 3:
+                findings.append({
+                    'date': row['date'],
+                    'vendor': f"{row['vendor']} / {compare_row['vendor']}",
+                    'amount': row['amount'],
+                    'issue': f"FUZZY DUPLICATE ({name_score}% Match)"
+                })
+
+                processed_indices.add(i)
+                processed_indices.add(j)
+                break
+
+    # --- ALGORITHM 2: PRICE ESCALATION DETECTION ---
+    df_sorted = df.sort_values(['vendor', 'date'])
+    df_sorted['prev_amt'] = df_sorted.groupby('vendor')['amount'].shift(1)
+    
+    spikes = df_sorted[(df_sorted['amount'] > df_sorted['prev_amt'] * 1.2) & (df_sorted['prev_amt'] > 0)]
+    
+    for _, row in spikes.iterrows():
+        findings.append({
+            'date': row['date'],
+            'vendor': row['vendor'],
+            'amount': row['amount'],
+            'issue': f"PRICE SPIKE (+{((row['amount']/row['prev_amt'])-1)*100:.0f}%)"
+        })
+
+    # Return findings — MUST be inside the function
     return pd.DataFrame(findings)
 # --- 2. THE PRODUCT ENGINE (The PDF Generator) ---
 class AuditPDF(FPDF):
