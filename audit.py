@@ -175,7 +175,7 @@ if uploaded_file:
                     "issue": str(row['issue'])
                 }
                 # This pushes the data to your Supabase table
-                supabase.table("audits").insert(data_to_save).execute()
+                supabase.table("auditreal").insert(data_to_save).execute()
             
             st.success(f"📊 {len(findings)} findings backed up to the Cloud Ledger.")
         total_waste = findings['amount'].sum() if not findings.empty else 0
