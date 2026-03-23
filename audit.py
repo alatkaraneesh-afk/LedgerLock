@@ -1,3 +1,19 @@
+def calculate_risk(row):
+    score = 0
+    # Higher scores for bigger dollar amounts
+    if row['amount'] > 1000: score += 40
+    elif row['amount'] > 500: score += 20
+    
+    # Higher scores for massive price spikes
+    if "PRICE SPIKE" in row['issue']:
+        percentage = int(re.search(r'\d+', row['issue']).group())
+        if percentage > 100: score += 50
+        else: score += 30
+        
+    # Higher scores for perfect fuzzy matches
+    if "100% Match" in row['issue']: score += 40
+    
+    return min(score, 100) # Cap at 100
 import streamlit as st
 from supabase import create_client, Client
 
