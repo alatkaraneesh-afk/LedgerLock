@@ -151,108 +151,87 @@ if uploaded_file:
     amount_col = col_c.selectbox("Amount Column", columns, index=get_default('amount', columns))
     
 if st.button("🚀 Run Forensic Audit"):
-        df_clean = pd.DataFrame({
-            'date': df_raw[date_col],
-            'vendor': df_raw[vendor_col],
-            'amount': df_raw[amount_col]
-        })
+    df_clean = pd.DataFrame({
+        'date': df_raw[date_col],
+        'vendor': df_raw[vendor_col],
+        'amount': df_raw[amount_col]
+    })
 
-        # Professional Vendor Sanitization
-        def clean_vendor(v):
-            v = str(v).lower()
-            v = re.sub(r'[^a-z0-9\s]', '', v)
-            v = v.replace('inc', '').replace('llc', '').replace('co', '').replace('company', '')
-            return v.strip()
+    # Professional Vendor Sanitization
+    def clean_vendor(v):
+        v = str(v).lower()
+        v = re.sub(r'[^a-z0-9\s]', '', v)
+        v = v.replace('inc', '').replace('llc', '').replace('co', '').replace('company', '')
+        return v.strip()
 
-        df_clean['vendor'] = df_clean['vendor'].apply(clean_vendor)
-
-        findings = run_audit(df_clean)
+    df_clean['vendor'] = df_clean['vendor'].apply(clean_vendor)
+    findings = run_audit(df_clean)
+    
+    if not findings.empty:
+        # --- THE CLOUD SAVE ENGINE ---
+        for _, row in findings.iterrows():
+            try:
+                data_to_save = {
+                    "vendor": str(row['vendor']),
+                    "amount": float(row['amount']),
+                    "issue": str(row['issue']),
+                    "user_email": "guest@example.com"
+                }
+                supabase.table("audits").insert(data_to_save).execute()
+            except Exception as e:
+                st.error(f"Cloud Save Error: {e}")
         
-        if not findings.empty:
-            # --- THE CLOUD SAVE ENGINE ---
-            for _, row in findings.iterrows():
-                try:
-                    data_to_save = {
-                        "vendor": str(row['vendor']),
-                        "amount": float(row['amount']),
-                        "issue": str(row['issue']),
-                        "user_email": "guest@example.com" # Matches your screenshot
-                    }
-                    # Pushing to 'auditreal' as seen in your screenshot
-                    supabase.table("audits").insert(data_to_save).execute()
-                except Exception as e:
-                    # This will show you the EXACT error (e.g., "Column not found")
-                    st.error(f"Cloud Save Error: {e}")
-            
-            st.success(f"📊 {len(findings)} findings backed up to the Cloud Ledger.")
-        total_waste = findings['amount'].sum() if not findings.empty else 0
-        
-        # KPIs
+        st.success(f"📊 {len(findings)} findings backed up to the Cloud Ledger.")
+
+        # --- KPI SECTION ---
+        total_waste = findings['amount'].sum()
         c1, c2, c3 = st.columns(3)
         c1.metric("Identified Monthly Waste", f"${total_waste:,.2f}")
         c2.metric("Annualized Recovery", f"${total_waste * 12:,.2f}", delta="Actionable")
         c3.metric("Audit Health", f"{max(0, 100 - len(findings))}%")
 
-     # --- NEW: ACTION CENTER & ROI SIDEBAR ---
-        if not findings.empty:
-            # 1. THE SIDEBAR (The "Fear Factor" Math)
-            st.sidebar.header("📈 Financial Impact")
-            st.sidebar.metric("Monthly Leakage", f"${total_waste:,.2f}")
-            st.sidebar.metric("5-Year Projected Loss", f"${total_waste * 12 * 5:,.2f}", delta="Risk", delta_color="inverse")
-            
-            st.sidebar.markdown("---")
-            st.sidebar.write("### 💰 LedgerLock Recovery")
-            commission = total_waste * 0.15 # 15% Success Fee
-            st.sidebar.metric("Potential Commission", f"${commission:,.2f}")
-            st.sidebar.info("Tip: Charge a 15% recovery fee to turn this script into a business.")
-
-            # 2. THE MAIN DISPLAY
-            pdf_bytes = generate_pdf_report(findings, total_waste)
-            st.download_button("📥 Download Certified Forensic Audit", data=pdf_bytes, 
-                               file_name="LedgerLock_Report.pdf", mime="application/pdf")
-            
-            st.write("### 🚩 Actionable Leakage Detected")
-            
-            # 3. THE DISPUTE GENERATOR LOOP
-            # 3. THE DISPUTE & RISK CENTER
-        st.write("### 🚩 Forensic Risk Analysis")
+        # --- SIDEBAR IMPACT ---
+        st.sidebar.header("📈 Financial Impact")
+        st.sidebar.metric("Monthly Leakage", f"${total_waste:,.2f}")
+        st.sidebar.metric("5-Year Projected Loss", f"${total_waste * 12 * 5:,.2f}", delta="Risk", delta_color="inverse")
         
+        # --- THE FORENSIC RISK ANALYSIS DISPLAY ---
+        st.write("### 🚩 Actionable Leakage Detected")
+        
+        pdf_bytes = generate_pdf_report(findings, total_waste)
+        st.download_button("📥 Download Certified Forensic Audit", data=pdf_bytes, 
+                           file_name="LedgerLock_Report.pdf", mime="application/pdf")
+
         for i, row in findings.iterrows():
-            # CALCULATE RISK SCORE (The "Billion-Dollar" Math)
+            # 1. Calculate Risk Score
             risk_score = 0
             if row['amount'] > 1000: risk_score += 40
             if "Match" in row['issue']: risk_score += 30
             if "SPIKE" in row['issue']: risk_score += 30
             
-            # ASSIGN COLOR BASED ON RISK
-            if risk_score >= 70:
-                label = "🔴 CRITICAL RISK"
-                color = "red"
-            elif risk_score >= 40:
-                label = "🟠 HIGH WARNING"
-                color = "orange"
-            else:
-                label = "🟡 MONITOR"
-                color = "blue"
+            # 2. Determine UI Label
+            if risk_score >= 70: label = "🔴 CRITICAL RISK"
+            elif risk_score >= 40: label = "🟠 HIGH WARNING"
+            else: label = "🟡 MONITOR"
 
+            # 3. Create Expander
             with st.expander(f"{label} (Score: {risk_score}) | {row['vendor']} - ${row['amount']:,.2f}"):
                 st.write(f"**Detected Issue:** {row['issue']}")
                 
-                # The Automated Email Draft
-                email_body = f"Subject: Urgent: Billing Discrepancy - {row['vendor']}\n\nRef: LL-{i}\nIssue: {row['issue']}\nAmount: ${row['amount']}"
-                st.text_area("One-Click Dispute Draft", email_body, height=150, key=f"risk_txt_{i}")
-
-To the Billing Department,
-
-Our internal financial audit (LedgerLock) has flagged a discrepancy regarding a charge of ${row['amount']:.2f} on {row['date'].date()}.
-
-Issue Identified: {row['issue']}
-
-Please review this transaction. If this was a duplicate or unauthorized escalation, we request a formal credit to our account.
-
-Reference ID: LL-{row['date'].strftime('%Y%m%d')}"""
-                    
-                    st.text_area("Dispute Draft (Copy & Paste)", email_body, height=200, key=f"txt_{i}")
-                    st.caption("Copy this text and send it to the vendor's billing department to recover these funds.")
-        else:
-            st.success("✅ No financial leakage detected. This company ledger is lean.")
+                # Setup variables for the email to avoid SyntaxErrors
+                clean_amt = f"{row['amount']:,.2f}"
+                clean_date = row['date'].strftime('%Y-%m-%d')
+                
+                email_body = (
+                    f"Subject: Billing Inquiry: Potential Overcharge - {row['vendor']}\n\n"
+                    f"To the Billing Department,\n\n"
+                    f"Our internal audit (LedgerLock) flagged a discrepancy of ${clean_amt} "
+                    f"on {clean_date}.\n\n"
+                    f"Issue: {row['issue']}\n\n"
+                    f"Please review this transaction for a potential credit.\n\n"
+                    f"Reference: LL-{clean_date.replace('-', '')}"
+                )
+                
+                st.text_area("One-Click Dispute Draft", email_body, height=200, key=f"risk_txt_{i}")
+    else:
+        st.success("✅ No financial leakage detected. This company ledger is lean.")
