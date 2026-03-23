@@ -135,34 +135,60 @@ uploaded_file = st.file_uploader("Upload Company Ledger (CSV)", type="csv")
 
 if uploaded_file:
     df_raw = pd.read_csv(uploaded_file)
-    
-    # Run the upgraded Fuzzy Engine
-    findings = run_audit(df_raw)
-    
-    # Calculate Waste
-    total_waste = findings['amount'].sum() if not findings.empty else 0
-    
-    # Key Performance Indicators (KPIs)
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Identified Monthly Waste", f"${total_waste:,.2f}")
-    col2.metric("Annualized Recovery", f"${total_waste * 12:,.2f}", delta="Actionable")
-    
-    health = max(0, 100 - len(findings))
-    col3.metric("Audit Health", f"{health}%")
 
-    # The PDF Download Button
-    if not findings.empty:
-        # Pass the unified findings to your PDF generator
-        pdf_bytes = generate_pdf_report(findings, pd.DataFrame(), total_waste)
-        st.download_button(
-            label="📥 Download Certified Forensic Audit",
-            data=pdf_bytes,
-            file_name=f"LedgerLock_Audit_{datetime.date.today()}.pdf",
-            mime="application/pdf"
-        )
+    st.write("### 🧩 Map Your Columns (Required)")
+    
+    columns = df_raw.columns.tolist()
+
+    date_col = st.selectbox("Select Date Column", columns)
+    vendor_col = st.selectbox("Select Vendor Column", columns)
+    amount_col = st.selectbox("Select Amount Column", columns)
+
+    if st.button("Run Audit"):
+        # Create standardized dataframe
+        df_clean = pd.DataFrame({
+            'date': df_raw[date_col],
+            'vendor': df_raw[vendor_col],
+            'amount': df_raw[amount_col]
+        })
+
+        # --- BASIC CLEANING ---
+        import re
+
+        def clean_vendor(v):
+            v = str(v).lower()
+            v = re.sub(r'[^a-z0-9\s]', '', v)
+            v = v.replace('inc', '').replace('llc', '').replace('co', '').replace('company', '')
+            return v.strip()
+
+        df_clean['vendor'] = df_clean['vendor'].apply(clean_vendor)
+
+        # Run your audit engine
+        findings = run_audit(df_clean)
+
+        # Calculate Waste
+        total_waste = findings['amount'].sum() if not findings.empty else 0
         
-        st.write("### 🚩 Detected Financial Leakage")
-        # Display the 'issue' column created by the Fuzzy Logic
-        st.dataframe(findings[['date', 'vendor', 'amount', 'issue']], use_container_width=True)
-    else:
-        st.success("✅ No financial leakage detected. This company ledger is lean.")
+        # KPIs
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Identified Monthly Waste", f"${total_waste:,.2f}")
+        col2.metric("Annualized Recovery", f"${total_waste * 12:,.2f}", delta="Actionable")
+        
+        health = max(0, 100 - len(findings))
+        col3.metric("Audit Health", f"{health}%")
+
+        # PDF + Results
+        if not findings.empty:
+            pdf_bytes = generate_pdf_report(findings, pd.DataFrame(), total_waste)
+            
+            st.download_button(
+                label="📥 Download Certified Forensic Audit",
+                data=pdf_bytes,
+                file_name=f"LedgerLock_Audit_{datetime.date.today()}.pdf",
+                mime="application/pdf"
+            )
+            
+            st.write("### 🚩 Detected Financial Leakage")
+            st.dataframe(findings[['date', 'vendor', 'amount', 'issue']], use_container_width=True)
+        else:
+            st.success("✅ No financial leakage detected. This company ledger is lean.")
