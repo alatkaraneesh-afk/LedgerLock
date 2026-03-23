@@ -235,8 +235,3 @@ if st.button("🚀 Run Forensic Audit"):
                 st.text_area("One-Click Dispute Draft", email_body, height=200, key=f"risk_txt_{i}")
     else:
         st.success("✅ No financial leakage detected. This company ledger is lean.")
-        # Display the "CEO View" Area Chart
-        st.area_chart(monthly_trend)
-        st.caption("This chart tracks 'Found Money' opportunities captured by LedgerLock over time.")
-except Exception as e:
-    pass
