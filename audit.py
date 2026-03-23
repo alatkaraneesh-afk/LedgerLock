@@ -235,3 +235,25 @@ if st.button("🚀 Run Forensic Audit"):
                 st.text_area("One-Click Dispute Draft", email_body, height=200, key=f"risk_txt_{i}")
     else:
         st.success("✅ No financial leakage detected. This company ledger is lean.")
+# --- 6. THE CFO ANALYTICS SUITE ---
+try:
+    # 1. Pull all historical data from your Supabase 'audits' table
+    hist_res = supabase.table("audits").select("created_at, amount").execute()
+    db_data = pd.DataFrame(hist_res.data)
+
+    if not db_data.empty:
+        st.markdown("---")
+        st.write("### 📉 Multi-Month Leakage Trend")
+        
+        # Convert the 'created_at' timestamp to a readable Month-Year
+        db_data['created_at'] = pd.to_datetime(db_data['created_at'])
+        db_data['Month'] = db_data['created_at'].dt.strftime('%Y-%m')
+        
+        # Group the data to see the trend of waste over time
+        monthly_trend = db_data.groupby('Month')['amount'].sum()
+        
+        # Display the "CEO View" Area Chart
+        st.area_chart(monthly_trend)
+        st.caption("This chart tracks 'Found Money' opportunities captured by LedgerLock over time.")
+except Exception as e:
+    pass
