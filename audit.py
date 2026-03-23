@@ -165,11 +165,46 @@ if uploaded_file:
         c2.metric("Annualized Recovery", f"${total_waste * 12:,.2f}", delta="Actionable")
         c3.metric("Audit Health", f"{max(0, 100 - len(findings))}%")
 
+     # --- NEW: ACTION CENTER & ROI SIDEBAR ---
         if not findings.empty:
+            # 1. THE SIDEBAR (The "Fear Factor" Math)
+            st.sidebar.header("📈 Financial Impact")
+            st.sidebar.metric("Monthly Leakage", f"${total_waste:,.2f}")
+            st.sidebar.metric("5-Year Projected Loss", f"${total_waste * 12 * 5:,.2f}", delta="Risk", delta_color="inverse")
+            
+            st.sidebar.markdown("---")
+            st.sidebar.write("### 💰 LedgerLock Recovery")
+            commission = total_waste * 0.15 # 15% Success Fee
+            st.sidebar.metric("Potential Commission", f"${commission:,.2f}")
+            st.sidebar.info("Tip: Charge a 15% recovery fee to turn this script into a business.")
+
+            # 2. THE MAIN DISPLAY
             pdf_bytes = generate_pdf_report(findings, total_waste)
-            st.download_button("📥 Download Certified PDF", data=pdf_bytes, 
+            st.download_button("📥 Download Certified Forensic Audit", data=pdf_bytes, 
                                file_name="LedgerLock_Report.pdf", mime="application/pdf")
-            st.write("### 🚩 Detected Financial Leakage")
-            st.dataframe(findings, use_container_width=True)
+            
+            st.write("### 🚩 Actionable Leakage Detected")
+            
+            # 3. THE DISPUTE GENERATOR LOOP
+            for i, row in findings.iterrows():
+                # Create an expandable box for every finding
+                with st.expander(f"Ref #LL-{i:03}: {row['vendor']} - ${row['amount']:,.2f}"):
+                    st.write(f"**Reason:** {row['issue']}")
+                    
+                    # Generate the Professional Dispute Email
+                    email_body = f"""Subject: Billing Inquiry: Potential Duplicate/Overcharge - {row['vendor']}
+
+To the Billing Department,
+
+Our internal financial audit (LedgerLock) has flagged a discrepancy regarding a charge of ${row['amount']:.2f} on {row['date'].date()}.
+
+Issue Identified: {row['issue']}
+
+Please review this transaction. If this was a duplicate or unauthorized escalation, we request a formal credit to our account.
+
+Reference ID: LL-{row['date'].strftime('%Y%m%d')}"""
+                    
+                    st.text_area("Dispute Draft (Copy & Paste)", email_body, height=200, key=f"txt_{i}")
+                    st.caption("Copy this text and send it to the vendor's billing department to recover these funds.")
         else:
-            st.success("✅ No leakage detected.")
+            st.success("✅ No financial leakage detected. This company ledger is lean.")
