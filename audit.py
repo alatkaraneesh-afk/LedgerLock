@@ -1,19 +1,4 @@
-def calculate_risk(row):
-    score = 0
-    # Higher scores for bigger dollar amounts
-    if row['amount'] > 1000: score += 40
-    elif row['amount'] > 500: score += 20
-    
-    # Higher scores for massive price spikes
-    if "PRICE SPIKE" in row['issue']:
-        percentage = int(re.search(r'\d+', row['issue']).group())
-        if percentage > 100: score += 50
-        else: score += 30
-        
-    # Higher scores for perfect fuzzy matches
-    if "100% Match" in row['issue']: score += 40
-    
-    return min(score, 100) # Cap at 100
+
 import streamlit as st
 from supabase import create_client, Client
 
@@ -229,13 +214,33 @@ if st.button("🚀 Run Forensic Audit"):
             st.write("### 🚩 Actionable Leakage Detected")
             
             # 3. THE DISPUTE GENERATOR LOOP
-            for i, row in findings.iterrows():
-                # Create an expandable box for every finding
-                with st.expander(f"Ref #LL-{i:03}: {row['vendor']} - ${row['amount']:,.2f}"):
-                    st.write(f"**Reason:** {row['issue']}")
-                    
-                    # Generate the Professional Dispute Email
-                    email_body = f"""Subject: Billing Inquiry: Potential Duplicate/Overcharge - {row['vendor']}
+            # 3. THE DISPUTE & RISK CENTER
+        st.write("### 🚩 Forensic Risk Analysis")
+        
+        for i, row in findings.iterrows():
+            # CALCULATE RISK SCORE (The "Billion-Dollar" Math)
+            risk_score = 0
+            if row['amount'] > 1000: risk_score += 40
+            if "Match" in row['issue']: risk_score += 30
+            if "SPIKE" in row['issue']: risk_score += 30
+            
+            # ASSIGN COLOR BASED ON RISK
+            if risk_score >= 70:
+                label = "🔴 CRITICAL RISK"
+                color = "red"
+            elif risk_score >= 40:
+                label = "🟠 HIGH WARNING"
+                color = "orange"
+            else:
+                label = "🟡 MONITOR"
+                color = "blue"
+
+            with st.expander(f"{label} (Score: {risk_score}) | {row['vendor']} - ${row['amount']:,.2f}"):
+                st.write(f"**Detected Issue:** {row['issue']}")
+                
+                # The Automated Email Draft
+                email_body = f"Subject: Urgent: Billing Discrepancy - {row['vendor']}\n\nRef: LL-{i}\nIssue: {row['issue']}\nAmount: ${row['amount']}"
+                st.text_area("One-Click Dispute Draft", email_body, height=150, key=f"risk_txt_{i}")
 
 To the Billing Department,
 
