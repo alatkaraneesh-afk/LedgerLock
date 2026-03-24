@@ -184,6 +184,13 @@ if st.button("🚀 Run Forensic Audit"):
         st.success(f"📊 {len(findings)} findings backed up to the Cloud Ledger.")
 
         # --- KPI SECTION ---
+        # Remove duplicate findings to avoid double counting
+        findings = findings.drop_duplicates(subset=['vendor', 'amount', 'issue'])
+
+        # Optional: ignore very small amounts (noise)
+        findings = findings[findings['amount'] > 100]
+
+        # Now calculate total waste
         total_waste = findings['amount'].sum()
         c1, c2, c3 = st.columns(3)
         c1.metric("Identified Monthly Waste", f"${total_waste:,.2f}")
