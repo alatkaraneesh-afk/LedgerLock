@@ -40,7 +40,7 @@ def run_audit(df):
     for i, row_a in df.iterrows():
         if row_a['row_id'] in flagged_ids: continue
         for j, row_b in df.iterrows():
-    if i >= j or row_b['row_id'] in flagged_ids: continue
+        if i >= j or row_b['row_id'] in flagged_ids: continue
             
             # Match if: Same Amount AND (Same simplified name OR High Fuzzy Score)
             same_amt = abs(row_a['amount'] - row_b['amount']) < 0.01
