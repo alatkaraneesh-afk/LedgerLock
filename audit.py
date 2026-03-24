@@ -17,7 +17,6 @@ import re
 
 # --- 1. THE DATA ENGINE (The "Brain") ---
 def run_audit(df):
-    # Standardize and Clean Data
     df.columns = df.columns.str.lower().str.strip()
     df['date'] = pd.to_datetime(df['date'], errors='coerce')
     df['amount'] = pd.to_numeric(df['amount'], errors='coerce')
@@ -25,48 +24,55 @@ def run_audit(df):
     
     findings = []
     processed_indices = set()
-# --- ALGORITHM 1: FUZZY DUPLICATE DETECTION ---
     df_list = df.reset_index(drop=True)
 
+    # --- ALGORITHM 1: DUPLICATE DETECTION (Strictly 2+ Rows) ---
     for i in range(len(df_list)):
         if i in processed_indices: continue
-
+        
+        # Look for a SECOND row that matches this one
         for j in range(i + 1, len(df_list)):
             if j in processed_indices: continue
-
-            row = df_list.iloc[i]
-            compare_row = df_list.iloc[j]
-
-            # Logic Fix: Same amount + Similar name + Separate entries
-            same_amount = abs(row['amount'] - compare_row['amount']) < 0.01
-            name_score = fuzz.token_set_ratio(str(row['vendor']), str(compare_row['vendor']))
-            days_diff = abs((row['date'] - compare_row['date']).days)
-
-            # i + 1 ensures a row never compares to itself (no more Acme / Acme)
-            if same_amount and name_score > 85 and days_diff <= 7:
+            
+            row_a = df_list.iloc[i]
+            row_b = df_list.iloc[j]
+            
+            # Must be same amount and very similar name
+            same_amt = abs(row_a['amount'] - row_b['amount']) < 0.01
+            name_match = fuzz.token_set_ratio(str(row_a['vendor']), str(row_b['vendor']))
+            
+            if same_amt and name_match > 85:
                 findings.append({
-                    'date': row['date'],
-                    'vendor': f"{row['vendor']} / {compare_row['vendor']}",
-                    'amount': row['amount'],
-                    'issue': f"DUPLICATE IDENTIFIED ({name_score}% Match)"
+                    'date': row_b['date'],
+                    'vendor': f"{row_a['vendor']} / {row_b['vendor']}",
+                    'amount': row_b['amount'],
+                    'issue': f"DUPLICATE IDENTIFIED ({name_match}% Match)"
                 })
                 processed_indices.add(i)
                 processed_indices.add(j)
                 break
 
-    # --- ALGORITHM 2: PRICE ESCALATION DETECTION ---
+    # --- ALGORITHM 2: PRICE SPIKES ---
     df_sorted = df.sort_values(['vendor', 'date'])
     df_sorted['prev_amt'] = df_sorted.groupby('vendor')['amount'].shift(1)
     
+    # Only flag spikes that haven't already been marked as duplicates
     spikes = df_sorted[(df_sorted['amount'] > df_sorted['prev_amt'] * 1.2) & (df_sorted['prev_amt'] > 0)]
     
-    for _, row in spikes.iterrows():
-        findings.append({
-            'date': row['date'],
-            'vendor': row['vendor'],
-            'amount': row['amount'],
-            'issue': f"PRICE SPIKE (+{((row['amount']/row['prev_amt'])-1)*100:.0f}%)"
-        })
+    for idx, row in spikes.iterrows():
+        # Check if this specific row was already flagged as a duplicate
+        is_dup = False
+        for f in findings:
+            if f['amount'] == row['amount'] and row['vendor'] in f['vendor']:
+                is_dup = True
+        
+        if not is_dup:
+            findings.append({
+                'date': row['date'],
+                'vendor': row['vendor'],
+                'amount': row['amount'],
+                'issue': f"PRICE SPIKE (+{((row['amount']/row['prev_amt'])-1)*100:.0f}%)"
+            })
 
     return pd.DataFrame(findings)
 
