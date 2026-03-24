@@ -17,59 +17,72 @@ import re
 
 # --- 1. THE DATA ENGINE (The "Brain") ---
 def run_audit(df):
-    # 1. Clean and Prepare
+    # 1. SETUP
     df = df.copy()
     df.columns = df.columns.str.lower().str.strip()
     df['date'] = pd.to_datetime(df['date'], errors='coerce')
     df['amount'] = pd.to_numeric(df['amount'], errors='coerce')
-    df = df.dropna(subset=['date', 'amount'])
-    
-    # Give every row a unique fingerprint so it can't match itself
-    df = df.reset_index().rename(columns={'index': 'row_id'})
+    df = df.dropna(subset=['date', 'amount']).reset_index(drop=True)
+    df['row_id'] = df.index
     
     findings = []
-    processed_row_ids = set()
-    df_list = df.to_dict('records')
+    flagged_ids = set()
 
-    # --- ALGORITHM 1: DUPLICATE DETECTION ---
-    for i in range(len(df_list)):
-        row_a = df_list[i]
-        if row_a['row_id'] in processed_row_ids: continue
-
-        for j in range(i + 1, len(df_list)):
-            row_b = df_list[j]
-            if row_b['row_id'] in processed_row_ids: continue
-
-            # Check for same amount + same/similar name + within 7 days
-            same_amt = abs(row_a['amount'] - row_b['amount']) < 0.01
+    # --- STAGE 1: EXACT DUPLICATES (Same Vendor, Same Date, Same Amount) ---
+    for i, row_a in df.iterrows():
+        if row_a['row_id'] in flagged_ids: continue
+        
+        for j, row_b in df.iterrows():
+            if i >= j or row_b['row_id'] in flagged_ids: continue
+            
+            # Match Logic: Same Day + Same Exact Amount + High Name Similarity
+            is_same_day = row_a['date'] == row_b['date']
+            is_same_amt = abs(row_a['amount'] - row_b['amount']) < 0.01
             name_score = fuzz.token_set_ratio(str(row_a['vendor']), str(row_b['vendor']))
-            days_diff = abs((row_a['date'] - row_b['date']).days)
-
-            if same_amt and name_score > 90 and days_diff <= 7:
+            
+            if is_same_day and is_same_amt and name_score > 90:
                 findings.append({
                     'date': row_b['date'],
-                    'vendor': f"{row_a['vendor']} (DUPLICATE)",
+                    'vendor': row_b['vendor'],
                     'amount': row_b['amount'],
-                    'issue': f"DUPLICATE IDENTIFIED ({name_score}% Match)",
+                    'issue': f"POTENTIAL DOUBLE-BILLING (Exact Match)",
                     'row_ids': [row_a['row_id'], row_b['row_id']]
                 })
-                processed_row_ids.add(row_a['row_id'])
-                processed_row_ids.add(row_b['row_id'])
-                break
+                flagged_ids.update([row_a['row_id'], row_b['row_id']])
 
-    # --- ALGORITHM 2: PRICE SPIKES ---
-    # We only look at rows that WERE NOT already caught as duplicates
-    remaining_df = df[~df['row_id'].isin(processed_row_ids)].copy()
-    remaining_df = remaining_df.sort_values(['vendor', 'date'])
-    remaining_df['prev_amt'] = remaining_df.groupby('vendor')['amount'].shift(1)
+    # --- STAGE 2: FUZZY DUPLICATES (Same Amount, Different Date, Similar Name) ---
+    for i, row_a in df.iterrows():
+        if row_a['row_id'] in flagged_ids: continue
+        
+        for j, row_b in df.iterrows():
+            if i >= j or row_b['row_id'] in flagged_ids: continue
+            
+            is_same_amt = abs(row_a['amount'] - row_b['amount']) < 0.01
+            name_score = fuzz.token_set_ratio(str(row_a['vendor']), str(row_b['vendor']))
+            days_diff = abs((row_a['date'] - row_b['date']).days)
+            
+            # If same amount and similar name within a 7-day window
+            if is_same_amt and name_score > 85 and days_diff <= 7:
+                findings.append({
+                    'date': row_b['date'],
+                    'vendor': row_b['vendor'],
+                    'amount': row_b['amount'],
+                    'issue': f"FUZZY DUPLICATE ({name_score}% match, {days_diff} day gap)",
+                    'row_ids': [row_a['row_id'], row_b['row_id']]
+                })
+                flagged_ids.update([row_a['row_id'], row_b['row_id']])
+
+    # --- STAGE 3: PRICE SPIKES (Only on rows NOT flagged as duplicates) ---
+    clean_df = df[~df['row_id'].isin(flagged_ids)].sort_values(['vendor', 'date'])
+    clean_df['prev_amt'] = clean_df.groupby('vendor')['amount'].shift(1)
     
-    spikes = remaining_df[(remaining_df['amount'] > remaining_df['prev_amt'] * 1.2) & (remaining_df['prev_amt'] > 0)]
+    spikes = clean_df[(clean_df['amount'] > clean_df['prev_amt'] * 1.2) & (clean_df['prev_amt'] > 0)]
     
     for _, row in spikes.iterrows():
         findings.append({
             'date': row['date'],
             'vendor': row['vendor'],
-            'amount': row['amount'] - row['prev_amt'], # Only count the EXTRA waste
+            'amount': row['amount'] - row['prev_amt'], # The "Overcharge" amount
             'issue': f"PRICE SPIKE (+{((row['amount']/row['prev_amt'])-1)*100:.0f}%)",
             'row_ids': [row['row_id']]
         })
@@ -172,7 +185,7 @@ if st.button("🚀 Run Forensic Audit"):
     df_clean['vendor'] = df_clean['vendor'].apply(clean_vendor)
     findings = run_audit(df_clean)
     
-    if not findings.empty:
+if not findings.empty:
         # --- THE CLOUD SAVE ENGINE ---
         for _, row in findings.iterrows():
             try:
@@ -188,15 +201,10 @@ if st.button("🚀 Run Forensic Audit"):
         
         st.success(f"📊 {len(findings)} findings backed up to the Cloud Ledger.")
 
-        # --- KPI SECTION ---
-        # Remove duplicate findings to avoid double counting
-        findings = findings.drop_duplicates(subset=['vendor', 'amount', 'issue'])
-
-        # Optional: ignore very small amounts (noise)
-        findings = findings[findings['amount'] > 100]
-
-        # Now calculate total waste
+        # --- KPI SECTION (Precision Math) ---
+        # No more drop_duplicates here! The engine already did the hard work.
         total_waste = findings['amount'].sum()
+        
         c1, c2, c3 = st.columns(3)
         c1.metric("Identified Monthly Waste", f"${total_waste:,.2f}")
         c2.metric("Annualized Recovery", f"${total_waste * 12:,.2f}", delta="Actionable")
@@ -215,10 +223,10 @@ if st.button("🚀 Run Forensic Audit"):
                            file_name="LedgerLock_Report.pdf", mime="application/pdf")
 
         for i, row in findings.iterrows():
-            # 1. Calculate Risk Score
+            # 1. Calculate Risk Score based on the NEW logic
             risk_score = 0
             if row['amount'] > 1000: risk_score += 40
-            if "Match" in row['issue']: risk_score += 30
+            if "Match" in row['issue'] or "DUPLICATE" in row['issue']: risk_score += 30
             if "SPIKE" in row['issue']: risk_score += 30
             
             # 2. Determine UI Label
@@ -230,7 +238,6 @@ if st.button("🚀 Run Forensic Audit"):
             with st.expander(f"{label} (Score: {risk_score}) | {row['vendor']} - ${row['amount']:,.2f}"):
                 st.write(f"**Detected Issue:** {row['issue']}")
                 
-                # Setup variables for the email to avoid SyntaxErrors
                 clean_amt = f"{row['amount']:,.2f}"
                 clean_date = row['date'].strftime('%Y-%m-%d')
                 
