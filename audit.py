@@ -252,5 +252,5 @@ if not findings.empty:
                 )
                 
                 st.text_area("One-Click Dispute Draft", email_body, height=200, key=f"risk_txt_{i}")
-            else:
-                st.success("✅ No financial leakage detected. This company ledger is lean.")
+else:
+    st.success("✅ No financial leakage detected. This company ledger is lean.")
