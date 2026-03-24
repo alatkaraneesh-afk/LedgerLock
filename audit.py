@@ -24,49 +24,54 @@ def run_audit(df):
     df = df.dropna(subset=['date', 'amount']).reset_index(drop=True)
     df['row_id'] = df.index
     
-    # 1. Alias Matching (The "Amazon/AWS" Fix)
-    aliases = {"aws": "amazon web services", "amzn mktp": "amazon", "office depot inc": "office depot"}
-    df['vendor_clean'] = df['vendor'].replace(aliases)
+    # --- 1. THE "SYNONYM" SHIELD (Fixes AWS/Amazon) ---
+    def simplify_vendor(v):
+        v = str(v).lower()
+        if 'aws' in v or 'amazon' in v or 'amzn' in v: return 'amazon/aws'
+        if 'acme' in v: return 'acme industrial'
+        if 'gravel' in v: return 'local gravel'
+        return v
 
+    df['vendor_group'] = df['vendor'].apply(simplify_vendor)
     findings = []
     flagged_ids = set()
 
-    # --- STAGE 1 & 2: DUPLICATES ---
+    # --- 2. PASS 1: DUPLICATES (Strict) ---
     for i, row_a in df.iterrows():
         if row_a['row_id'] in flagged_ids: continue
         for j, row_b in df.iterrows():
             if i >= j or row_b['row_id'] in flagged_ids: continue
             
+            # Match if: Same Amount AND (Same simplified name OR High Fuzzy Score)
             same_amt = abs(row_a['amount'] - row_b['amount']) < 0.01
-            # Check Cleaned Vendors OR Fuzzy Match
-            name_match = (row_a['vendor_clean'] == row_b['vendor_clean']) or (fuzz.token_set_ratio(row_a['vendor'], row_b['vendor']) > 85)
+            name_match = (row_a['vendor_group'] == row_b['vendor_group']) or (fuzz.token_set_ratio(row_a['vendor'], row_b['vendor']) > 85)
             days_diff = abs((row_a['date'] - row_b['date']).days)
 
             if same_amt and name_match and days_diff <= 7:
                 findings.append({
                     'date': row_b['date'],
-                    'vendor': row_b['vendor'],
+                    'vendor': f"{row_a['vendor']} / {row_b['vendor']}",
                     'amount': row_b['amount'],
                     'issue': "DUPLICATE BILLING IDENTIFIED",
                     'row_ids': [row_a['row_id'], row_b['row_id']]
                 })
                 flagged_ids.update([row_a['row_id'], row_b['row_id']])
 
-    # --- STAGE 3: PRICE SPIKES (Deep Scan) ---
-    # We look at ALL rows here to find spikes, even if they had duplicates elsewhere
-    df_sorted = df.sort_values(['vendor_clean', 'date'])
-    df_sorted['prev_amt'] = df_sorted.groupby('vendor_clean')['amount'].shift(1)
+    # --- 3. PASS 2: PRICE SPIKES (Deep Scan) ---
+    # We group by the 'vendor_group' to catch spikes even if the name changed slightly
+    df_sorted = df.sort_values(['vendor_group', 'date'])
+    df_sorted['prev_amt'] = df_sorted.groupby('vendor_group')['amount'].shift(1)
     
-    # Flag spikes > 20% increase
+    # Flag spikes where current amount is 20%+ higher than previous
     spikes = df_sorted[(df_sorted['amount'] > df_sorted['prev_amt'] * 1.2) & (df_sorted['prev_amt'] > 0)]
     
     for _, row in spikes.iterrows():
-        # Only add if this specific row isn't already a duplicate
+        # Only flag the spike if this specific row wasn't already caught as a duplicate
         if row['row_id'] not in flagged_ids:
             findings.append({
                 'date': row['date'],
                 'vendor': row['vendor'],
-                'amount': row['amount'] - row['prev_amt'],
+                'amount': row['amount'] - row['prev_amt'], # WASTE = The Increase
                 'issue': f"UNAUTHORIZED PRICE SPIKE (+{((row['amount']/row['prev_amt'])-1)*100:.0f}%)"
             })
 
