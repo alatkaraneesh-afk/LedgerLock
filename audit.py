@@ -40,7 +40,7 @@ def run_audit(df):
     for i, row_a in df.iterrows():
         if row_a['row_id'] in flagged_ids: continue
         for j, row_b in df.iterrows():
-            if i >= j or row_b['row_id'] in flagged_ids: continue
+    if i >= j or row_b['row_id'] in flagged_ids: continue
             
             # Match if: Same Amount AND (Same simplified name OR High Fuzzy Score)
             same_amt = abs(row_a['amount'] - row_b['amount']) < 0.01
@@ -59,23 +59,22 @@ def run_audit(df):
 
 # --- STAGE 3: PRICE SPIKES (Independent Scan) ---
     # We sort by vendor and date to see the 'timeline' of costs
+    # ... (end of duplicate loop)
+    # MAKE SURE ALL OF THIS IS TABBED IN ONCE:
     df_sorted = df.sort_values(['vendor_group', 'date'])
     df_sorted['prev_amt'] = df_sorted.groupby('vendor_group')['amount'].shift(1)
     
-    # Identify spikes > 20% increase
     spikes = df_sorted[(df_sorted['amount'] > df_sorted['prev_amt'] * 1.2) & (df_sorted['prev_amt'] > 0)]
     
     for _, row in spikes.iterrows():
-        # IMPORTANT: We only add this if the row hasn't been flagged as a duplicate ALREADY.
-        # This prevents one row from being counted twice (once as a duplicate, once as a spike).
         if row['row_id'] not in flagged_ids:
             findings.append({
                 'date': row['date'],
                 'vendor': row['vendor'],
-                'amount': row['amount'] - row['prev_amt'], # We only care about the EXTRA cost
+                'amount': row['amount'] - row['prev_amt'],
                 'issue': f"UNAUTHORIZED PRICE SPIKE (+{((row['amount']/row['prev_amt'])-1)*100:.0f}%)"
             })
-    return pd.DataFrame(findings)
+    return pd.DataFrame(findings) # This return must also be indented!
 # --- 2. THE PRODUCT ENGINE (The PDF Generator) ---
 class AuditPDF(FPDF):
     def header(self):
