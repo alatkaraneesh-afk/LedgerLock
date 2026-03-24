@@ -16,6 +16,7 @@ from thefuzz import fuzz
 import re
 
 # --- 1. THE DATA ENGINE (The "Brain") ---
+# --- 1. THE DATA ENGINE (The "Brain") ---
 def run_audit(df):
     df = df.copy()
     df.columns = df.columns.str.lower().str.strip()
@@ -40,9 +41,9 @@ def run_audit(df):
     for i, row_a in df.iterrows():
         if row_a['row_id'] in flagged_ids: continue
         for j, row_b in df.iterrows():
-        if i >= j or row_b['row_id'] in flagged_ids: continue
+            # FIXED INDENTATION HERE
+            if i >= j or row_b['row_id'] in flagged_ids: continue
             
-            # Match if: Same Amount AND (Same simplified name OR High Fuzzy Score)
             same_amt = abs(row_a['amount'] - row_b['amount']) < 0.01
             name_match = (row_a['vendor_group'] == row_b['vendor_group']) or (fuzz.token_set_ratio(row_a['vendor'], row_b['vendor']) > 85)
             days_diff = abs((row_a['date'] - row_b['date']).days)
@@ -57,10 +58,7 @@ def run_audit(df):
                 })
                 flagged_ids.update([row_a['row_id'], row_b['row_id']])
 
-# --- STAGE 3: PRICE SPIKES (Independent Scan) ---
-    # We sort by vendor and date to see the 'timeline' of costs
-    # ... (end of duplicate loop)
-    # MAKE SURE ALL OF THIS IS TABBED IN ONCE:
+    # --- 3. PASS 2: PRICE SPIKES (Now correctly inside the function) ---
     df_sorted = df.sort_values(['vendor_group', 'date'])
     df_sorted['prev_amt'] = df_sorted.groupby('vendor_group')['amount'].shift(1)
     
@@ -74,7 +72,9 @@ def run_audit(df):
                 'amount': row['amount'] - row['prev_amt'],
                 'issue': f"UNAUTHORIZED PRICE SPIKE (+{((row['amount']/row['prev_amt'])-1)*100:.0f}%)"
             })
-    return pd.DataFrame(findings) # This return must also be indented!
+
+    # FINAL RETURN: Must be indented to be part of the function
+    return pd.DataFrame(findings)
 # --- 2. THE PRODUCT ENGINE (The PDF Generator) ---
 class AuditPDF(FPDF):
     def header(self):
