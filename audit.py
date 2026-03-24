@@ -185,7 +185,8 @@ if st.button("🚀 Run Forensic Audit"):
     df_clean['vendor'] = df_clean['vendor'].apply(clean_vendor)
     findings = run_audit(df_clean)
     
-if not findings.empty:
+    # --- EVERYTHING BELOW MOVED INSIDE THE BUTTON BLOCK ---
+    if not findings.empty:
         # --- THE CLOUD SAVE ENGINE ---
         for _, row in findings.iterrows():
             try:
@@ -202,7 +203,6 @@ if not findings.empty:
         st.success(f"📊 {len(findings)} findings backed up to the Cloud Ledger.")
 
         # --- KPI SECTION (Precision Math) ---
-        # No more drop_duplicates here! The engine already did the hard work.
         total_waste = findings['amount'].sum()
         
         c1, c2, c3 = st.columns(3)
@@ -223,18 +223,15 @@ if not findings.empty:
                            file_name="LedgerLock_Report.pdf", mime="application/pdf")
 
         for i, row in findings.iterrows():
-            # 1. Calculate Risk Score based on the NEW logic
             risk_score = 0
             if row['amount'] > 1000: risk_score += 40
             if "Match" in row['issue'] or "DUPLICATE" in row['issue']: risk_score += 30
             if "SPIKE" in row['issue']: risk_score += 30
             
-            # 2. Determine UI Label
             if risk_score >= 70: label = "🔴 CRITICAL RISK"
             elif risk_score >= 40: label = "🟠 HIGH WARNING"
             else: label = "🟡 MONITOR"
 
-            # 3. Create Expander
             with st.expander(f"{label} (Score: {risk_score}) | {row['vendor']} - ${row['amount']:,.2f}"):
                 st.write(f"**Detected Issue:** {row['issue']}")
                 
@@ -252,5 +249,5 @@ if not findings.empty:
                 )
                 
                 st.text_area("One-Click Dispute Draft", email_body, height=200, key=f"risk_txt_{i}")
-else:
-    st.success("✅ No financial leakage detected. This company ledger is lean.")
+    else:
+        st.success("✅ No financial leakage detected. This company ledger is lean.")
