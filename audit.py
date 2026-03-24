@@ -25,40 +25,34 @@ def run_audit(df):
     
     findings = []
     processed_indices = set()
+# --- ALGORITHM 1: FUZZY DUPLICATE DETECTION ---
+    df_list = df.reset_index(drop=True)
 
-    # --- ALGORITHM 1: FUZZY DUPLICATE DETECTION ---#
+    for i in range(len(df_list)):
+        if i in processed_indices: continue
 
-df_list = df.reset_index(drop=True)
+        for j in range(i + 1, len(df_list)):
+            if j in processed_indices: continue
 
-for i in range(len(df_list)):
-    if i in processed_indices: continue
+            row = df_list.iloc[i]
+            compare_row = df_list.iloc[j]
 
-    for j in range(i + 1, len(df_list)):
-        if j in processed_indices: continue
+            # Logic Fix: Same amount + Similar name + Separate entries
+            same_amount = abs(row['amount'] - compare_row['amount']) < 0.01
+            name_score = fuzz.token_set_ratio(str(row['vendor']), str(compare_row['vendor']))
+            days_diff = abs((row['date'] - compare_row['date']).days)
 
-        row = df_list.iloc[i]
-        compare_row = df_list.iloc[j]
-
-        # THE FIX: Only flag if they are DIFFERENT rows with the SAME amount
-        same_amount = abs(row['amount'] - compare_row['amount']) < 0.01
-        
-        # We use a threshold: 100% match is usually a real duplicate, 
-        # but only if it's two separate entries in the ledger.
-        name_score = fuzz.token_set_ratio(str(row['vendor']), str(compare_row['vendor']))
-        days_diff = abs((row['date'] - compare_row['date']).days)
-
-        # Ensure we aren't just matching the vendor to itself on different dates 
-        # unless the amount is identical (Potential double-billing)
-        if same_amount and name_score > 85 and days_diff <= 7:
-            findings.append({
-                'date': row['date'],
-                'vendor': f"{row['vendor']} / {compare_row['vendor']}",
-                'amount': row['amount'],
-                'issue': f"DUPLICATE IDENTIFIED ({name_score}% Match)"
-            })
-            processed_indices.add(i)
-            processed_indices.add(j)
-            break
+            # i + 1 ensures a row never compares to itself (no more Acme / Acme)
+            if same_amount and name_score > 85 and days_diff <= 7:
+                findings.append({
+                    'date': row['date'],
+                    'vendor': f"{row['vendor']} / {compare_row['vendor']}",
+                    'amount': row['amount'],
+                    'issue': f"DUPLICATE IDENTIFIED ({name_score}% Match)"
+                })
+                processed_indices.add(i)
+                processed_indices.add(j)
+                break
 
     # --- ALGORITHM 2: PRICE ESCALATION DETECTION ---
     df_sorted = df.sort_values(['vendor', 'date'])
