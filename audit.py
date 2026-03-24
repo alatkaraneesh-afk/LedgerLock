@@ -17,65 +17,64 @@ import re
 
 # --- 1. THE DATA ENGINE (The "Brain") ---
 def run_audit(df):
+    # 1. Clean and Prepare
+    df = df.copy()
     df.columns = df.columns.str.lower().str.strip()
     df['date'] = pd.to_datetime(df['date'], errors='coerce')
     df['amount'] = pd.to_numeric(df['amount'], errors='coerce')
     df = df.dropna(subset=['date', 'amount'])
     
+    # Give every row a unique fingerprint so it can't match itself
+    df = df.reset_index().rename(columns={'index': 'row_id'})
+    
     findings = []
-    processed_indices = set()
-    df_list = df.reset_index(drop=True)
+    processed_row_ids = set()
+    df_list = df.to_dict('records')
 
-    # --- ALGORITHM 1: DUPLICATE DETECTION (Strictly 2+ Rows) ---
+    # --- ALGORITHM 1: DUPLICATE DETECTION ---
     for i in range(len(df_list)):
-        if i in processed_indices: continue
-        
-        # Look for a SECOND row that matches this one
+        row_a = df_list[i]
+        if row_a['row_id'] in processed_row_ids: continue
+
         for j in range(i + 1, len(df_list)):
-            if j in processed_indices: continue
-            
-            row_a = df_list.iloc[i]
-            row_b = df_list.iloc[j]
-            
-            # Must be same amount and very similar name
+            row_b = df_list[j]
+            if row_b['row_id'] in processed_row_ids: continue
+
+            # Check for same amount + same/similar name + within 7 days
             same_amt = abs(row_a['amount'] - row_b['amount']) < 0.01
-            name_match = fuzz.token_set_ratio(str(row_a['vendor']), str(row_b['vendor']))
-            
-            if same_amt and name_match > 85:
+            name_score = fuzz.token_set_ratio(str(row_a['vendor']), str(row_b['vendor']))
+            days_diff = abs((row_a['date'] - row_b['date']).days)
+
+            if same_amt and name_score > 90 and days_diff <= 7:
                 findings.append({
                     'date': row_b['date'],
-                    'vendor': f"{row_a['vendor']} / {row_b['vendor']}",
+                    'vendor': f"{row_a['vendor']} (DUPLICATE)",
                     'amount': row_b['amount'],
-                    'issue': f"DUPLICATE IDENTIFIED ({name_match}% Match)"
+                    'issue': f"DUPLICATE IDENTIFIED ({name_score}% Match)",
+                    'row_ids': [row_a['row_id'], row_b['row_id']]
                 })
-                processed_indices.add(i)
-                processed_indices.add(j)
+                processed_row_ids.add(row_a['row_id'])
+                processed_row_ids.add(row_b['row_id'])
                 break
 
     # --- ALGORITHM 2: PRICE SPIKES ---
-    df_sorted = df.sort_values(['vendor', 'date'])
-    df_sorted['prev_amt'] = df_sorted.groupby('vendor')['amount'].shift(1)
+    # We only look at rows that WERE NOT already caught as duplicates
+    remaining_df = df[~df['row_id'].isin(processed_row_ids)].copy()
+    remaining_df = remaining_df.sort_values(['vendor', 'date'])
+    remaining_df['prev_amt'] = remaining_df.groupby('vendor')['amount'].shift(1)
     
-    # Only flag spikes that haven't already been marked as duplicates
-    spikes = df_sorted[(df_sorted['amount'] > df_sorted['prev_amt'] * 1.2) & (df_sorted['prev_amt'] > 0)]
+    spikes = remaining_df[(remaining_df['amount'] > remaining_df['prev_amt'] * 1.2) & (remaining_df['prev_amt'] > 0)]
     
-    for idx, row in spikes.iterrows():
-        # Check if this specific row was already flagged as a duplicate
-        is_dup = False
-        for f in findings:
-            if f['amount'] == row['amount'] and row['vendor'] in f['vendor']:
-                is_dup = True
-        
-        if not is_dup:
-            findings.append({
-                'date': row['date'],
-                'vendor': row['vendor'],
-                'amount': row['amount'],
-                'issue': f"PRICE SPIKE (+{((row['amount']/row['prev_amt'])-1)*100:.0f}%)"
-            })
+    for _, row in spikes.iterrows():
+        findings.append({
+            'date': row['date'],
+            'vendor': row['vendor'],
+            'amount': row['amount'] - row['prev_amt'], # Only count the EXTRA waste
+            'issue': f"PRICE SPIKE (+{((row['amount']/row['prev_amt'])-1)*100:.0f}%)",
+            'row_ids': [row['row_id']]
+        })
 
     return pd.DataFrame(findings)
-
 # --- 2. THE PRODUCT ENGINE (The PDF Generator) ---
 class AuditPDF(FPDF):
     def header(self):
