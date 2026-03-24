@@ -17,7 +17,6 @@ import re
 
 # --- 1. THE DATA ENGINE (The "Brain") ---
 def run_audit(df):
-    # 1. SETUP
     df = df.copy()
     df.columns = df.columns.str.lower().str.strip()
     df['date'] = pd.to_datetime(df['date'], errors='coerce')
@@ -25,67 +24,51 @@ def run_audit(df):
     df = df.dropna(subset=['date', 'amount']).reset_index(drop=True)
     df['row_id'] = df.index
     
+    # 1. Alias Matching (The "Amazon/AWS" Fix)
+    aliases = {"aws": "amazon web services", "amzn mktp": "amazon", "office depot inc": "office depot"}
+    df['vendor_clean'] = df['vendor'].replace(aliases)
+
     findings = []
     flagged_ids = set()
 
-    # --- STAGE 1: EXACT DUPLICATES (Same Vendor, Same Date, Same Amount) ---
+    # --- STAGE 1 & 2: DUPLICATES ---
     for i, row_a in df.iterrows():
         if row_a['row_id'] in flagged_ids: continue
-        
         for j, row_b in df.iterrows():
             if i >= j or row_b['row_id'] in flagged_ids: continue
             
-            # Match Logic: Same Day + Same Exact Amount + High Name Similarity
-            is_same_day = row_a['date'] == row_b['date']
-            is_same_amt = abs(row_a['amount'] - row_b['amount']) < 0.01
-            name_score = fuzz.token_set_ratio(str(row_a['vendor']), str(row_b['vendor']))
-            
-            if is_same_day and is_same_amt and name_score > 90:
-                findings.append({
-                    'date': row_b['date'],
-                    'vendor': row_b['vendor'],
-                    'amount': row_b['amount'],
-                    'issue': f"POTENTIAL DOUBLE-BILLING (Exact Match)",
-                    'row_ids': [row_a['row_id'], row_b['row_id']]
-                })
-                flagged_ids.update([row_a['row_id'], row_b['row_id']])
-
-    # --- STAGE 2: FUZZY DUPLICATES (Same Amount, Different Date, Similar Name) ---
-    for i, row_a in df.iterrows():
-        if row_a['row_id'] in flagged_ids: continue
-        
-        for j, row_b in df.iterrows():
-            if i >= j or row_b['row_id'] in flagged_ids: continue
-            
-            is_same_amt = abs(row_a['amount'] - row_b['amount']) < 0.01
-            name_score = fuzz.token_set_ratio(str(row_a['vendor']), str(row_b['vendor']))
+            same_amt = abs(row_a['amount'] - row_b['amount']) < 0.01
+            # Check Cleaned Vendors OR Fuzzy Match
+            name_match = (row_a['vendor_clean'] == row_b['vendor_clean']) or (fuzz.token_set_ratio(row_a['vendor'], row_b['vendor']) > 85)
             days_diff = abs((row_a['date'] - row_b['date']).days)
-            
-            # If same amount and similar name within a 7-day window
-            if is_same_amt and name_score > 85 and days_diff <= 7:
+
+            if same_amt and name_match and days_diff <= 7:
                 findings.append({
                     'date': row_b['date'],
                     'vendor': row_b['vendor'],
                     'amount': row_b['amount'],
-                    'issue': f"FUZZY DUPLICATE ({name_score}% match, {days_diff} day gap)",
+                    'issue': "DUPLICATE BILLING IDENTIFIED",
                     'row_ids': [row_a['row_id'], row_b['row_id']]
                 })
                 flagged_ids.update([row_a['row_id'], row_b['row_id']])
 
-    # --- STAGE 3: PRICE SPIKES (Only on rows NOT flagged as duplicates) ---
-    clean_df = df[~df['row_id'].isin(flagged_ids)].sort_values(['vendor', 'date'])
-    clean_df['prev_amt'] = clean_df.groupby('vendor')['amount'].shift(1)
+    # --- STAGE 3: PRICE SPIKES (Deep Scan) ---
+    # We look at ALL rows here to find spikes, even if they had duplicates elsewhere
+    df_sorted = df.sort_values(['vendor_clean', 'date'])
+    df_sorted['prev_amt'] = df_sorted.groupby('vendor_clean')['amount'].shift(1)
     
-    spikes = clean_df[(clean_df['amount'] > clean_df['prev_amt'] * 1.2) & (clean_df['prev_amt'] > 0)]
+    # Flag spikes > 20% increase
+    spikes = df_sorted[(df_sorted['amount'] > df_sorted['prev_amt'] * 1.2) & (df_sorted['prev_amt'] > 0)]
     
     for _, row in spikes.iterrows():
-        findings.append({
-            'date': row['date'],
-            'vendor': row['vendor'],
-            'amount': row['amount'] - row['prev_amt'], # The "Overcharge" amount
-            'issue': f"PRICE SPIKE (+{((row['amount']/row['prev_amt'])-1)*100:.0f}%)",
-            'row_ids': [row['row_id']]
-        })
+        # Only add if this specific row isn't already a duplicate
+        if row['row_id'] not in flagged_ids:
+            findings.append({
+                'date': row['date'],
+                'vendor': row['vendor'],
+                'amount': row['amount'] - row['prev_amt'],
+                'issue': f"UNAUTHORIZED PRICE SPIKE (+{((row['amount']/row['prev_amt'])-1)*100:.0f}%)"
+            })
 
     return pd.DataFrame(findings)
 # --- 2. THE PRODUCT ENGINE (The PDF Generator) ---
