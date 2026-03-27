@@ -156,36 +156,25 @@ if uploaded_file:
     amount_col = col_c.selectbox("Amount Column", columns, index=get_default('amount', columns))
     
 if st.button("🚀 Run Forensic Audit"):
-    df_clean = pd.DataFrame({
-        'date': df_raw[date_col],
-        'vendor': df_raw[vendor_col],
-        'amount': df_raw[amount_col]
-    })
-
-    # Professional Vendor Sanitization
-    def clean_vendor(v):
-        v = str(v).lower()
-        v = re.sub(r'[^a-z0-9\s]', '', v)
-        v = v.replace('inc', '').replace('llc', '').replace('co', '').replace('company', '')
-        return v.strip()
-
-    df_clean['vendor'] = df_clean['vendor'].apply(clean_vendor)
-    findings = run_audit(df_clean)
-    
-    # --- EVERYTHING BELOW MOVED INSIDE THE BUTTON BLOCK ---
-    if not findings.empty:
-        # --- THE CLOUD SAVE ENGINE ---
-        for _, row in findings.iterrows():
-            try:
-                data_to_save = {
-                    "vendor": str(row['vendor']),
-                    "amount": float(row['amount']),
-                    "issue": str(row['issue']),
-                    "user_email": "guest@example.com"
-                }
-                supabase.table("audits").insert(data_to_save).execute()
-            except Exception as e:
-                st.error(f"Cloud Save Error: {e}")
+        df_clean = pd.DataFrame({'date': df_raw[date_col], 'vendor': df_raw[vend_col], 'amount': df_raw[amnt_col]})
+        results = run_audit(df_clean)
+        
+        st.session_state.findings = results
+        st.session_state.total_waste = results['amount'].sum() if not results.empty else 0
+        
+        # NEW: Only sync if we haven't synced this specific file yet
+        if not results.empty and st.session_state.get('last_sync') != uploaded_file.name:
+            for _, row in results.iterrows():
+                try:
+                    supabase.table("audits").insert({
+                        "vendor": str(row['vendor']), 
+                        "amount": float(row['amount']),
+                        "issue": str(row['issue']), 
+                        "user_email": "guest@example.com"
+                    }).execute()
+                except Exception as e: 
+                    st.error(f"Sync Error: {e}")
+            st.session_state.last_sync = uploaded_file.name # Lock the sync
         
         st.success(f"📊 {len(findings)} findings backed up to the Cloud Ledger.")
 
