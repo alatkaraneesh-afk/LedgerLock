@@ -1,12 +1,12 @@
+
+import streamlit as st
+from supabase import create_client, Client
 # --- 0. INITIALIZE SESSION STATE (The Safety Check) ---
 if 'findings' not in st.session_state:
     st.session_state.findings = None
 
 if 'total_waste' not in st.session_state:
     st.session_state.total_waste = 0
-import streamlit as st
-from supabase import create_client, Client
-
 # This pulls the "Secrets" you saved in Step 1
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
