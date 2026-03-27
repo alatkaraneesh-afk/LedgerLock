@@ -1,4 +1,9 @@
+# --- 0. INITIALIZE SESSION STATE (The Safety Check) ---
+if 'findings' not in st.session_state:
+    st.session_state.findings = None
 
+if 'total_waste' not in st.session_state:
+    st.session_state.total_waste = 0
 import streamlit as st
 from supabase import create_client, Client
 
