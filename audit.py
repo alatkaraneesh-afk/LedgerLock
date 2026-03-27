@@ -155,75 +155,60 @@ if uploaded_file:
     vendor_col = col_b.selectbox("Vendor Column", columns, index=get_default('vendor', columns))
     amount_col = col_c.selectbox("Amount Column", columns, index=get_default('amount', columns))
     
+# --- 3. THE INTERFACE & ENGINE ---
 if st.button("🚀 Run Forensic Audit"):
-        df_clean = pd.DataFrame({'date': df_raw[date_col], 'vendor': df_raw[vend_col], 'amount': df_raw[amnt_col]})
-        results = run_audit(df_clean)
-        
-        st.session_state.findings = results
-        st.session_state.total_waste = results['amount'].sum() if not results.empty else 0
-        
-        # NEW: Only sync if we haven't synced this specific file yet
-        if not results.empty and st.session_state.get('last_sync') != uploaded_file.name:
-            for _, row in results.iterrows():
-                try:
-                    supabase.table("audits").insert({
-                        "vendor": str(row['vendor']), 
-                        "amount": float(row['amount']),
-                        "issue": str(row['issue']), 
-                        "user_email": "guest@example.com"
-                    }).execute()
-                except Exception as e: 
-                    st.error(f"Sync Error: {e}")
-            st.session_state.last_sync = uploaded_file.name # Lock the sync
-        
-        st.success(f"📊 {len(findings)} findings backed up to the Cloud Ledger.")
+    # 1. Map columns into a standard format
+    df_clean = pd.DataFrame({
+        'date': df_raw[date_col], 
+        'vendor': df_raw[vendor_col], 
+        'amount': df_raw[amount_col]
+    })
+    
+    # 2. Run the audit logic
+    results = run_audit(df_clean)
+    
+    # 3. SAVE TO SESSION STATE (The "Memory" Fix)
+    st.session_state.findings = results
+    st.session_state.total_waste = results['amount'].sum() if not results.empty else 0
+    
+    # 4. CLOUD SYNC (The "Anti-Spam" Fix)
+    if not results.empty and st.session_state.get('last_sync') != uploaded_file.name:
+        for _, row in results.iterrows():
+            try:
+                supabase.table("audits").insert({
+                    "vendor": str(row['vendor']), 
+                    "amount": float(row['amount']),
+                    "issue": str(row['issue']), 
+                    "user_email": "guest@example.com"
+                }).execute()
+            except Exception as e: 
+                st.error(f"Sync Error: {e}")
+        st.session_state.last_sync = uploaded_file.name
 
-        # --- KPI SECTION (Precision Math) ---
-        total_waste = findings['amount'].sum()
+# --- 4. PERSISTENT DISPLAY (Must be OUTSIDE the button block) ---
+if st.session_state.findings is not None:
+    findings = st.session_state.findings
+    total_waste = st.session_state.total_waste
+    
+    if not findings.empty:
+        st.success(f"📊 {len(findings)} potential leaks identified.")
         
+        # Metrics Display
         c1, c2, c3 = st.columns(3)
-        c1.metric("Identified Monthly Waste", f"${total_waste:,.2f}")
-        c2.metric("Annualized Recovery", f"${total_waste * 12:,.2f}", delta="Actionable")
+        c1.metric("Monthly Waste", f"${total_waste:,.2f}")
+        c2.metric("Annualized Recovery", f"${total_waste * 12:,.2f}")
         c3.metric("Audit Health", f"{max(0, 100 - len(findings))}%")
-
-        # --- SIDEBAR IMPACT ---
-        st.sidebar.header("📈 Financial Impact")
-        st.sidebar.metric("Monthly Leakage", f"${total_waste:,.2f}")
-        st.sidebar.metric("5-Year Projected Loss", f"${total_waste * 12 * 5:,.2f}", delta="Risk", delta_color="inverse")
         
-        # --- THE FORENSIC RISK ANALYSIS DISPLAY ---
-        st.write("### 🚩 Actionable Leakage Detected")
-        
+        # PDF Generation
         pdf_bytes = generate_pdf_report(findings, total_waste)
-        st.download_button("📥 Download Certified Forensic Audit", data=pdf_bytes, 
+        st.download_button("📥 Download Certified Audit", data=pdf_bytes, 
                            file_name="LedgerLock_Report.pdf", mime="application/pdf")
 
+        # Risk Analysis (The Expanders)
+        st.write("### 🚩 Actionable Leakage")
         for i, row in findings.iterrows():
-            risk_score = 0
-            if row['amount'] > 1000: risk_score += 40
-            if "Match" in row['issue'] or "DUPLICATE" in row['issue']: risk_score += 30
-            if "SPIKE" in row['issue']: risk_score += 30
-            
-            if risk_score >= 70: label = "🔴 CRITICAL RISK"
-            elif risk_score >= 40: label = "🟠 HIGH WARNING"
-            else: label = "🟡 MONITOR"
-
-            with st.expander(f"{label} (Score: {risk_score}) | {row['vendor']} - ${row['amount']:,.2f}"):
-                st.write(f"**Detected Issue:** {row['issue']}")
-                
-                clean_amt = f"{row['amount']:,.2f}"
-                clean_date = row['date'].strftime('%Y-%m-%d')
-                
-                email_body = (
-                    f"Subject: Billing Inquiry: Potential Overcharge - {row['vendor']}\n\n"
-                    f"To the Billing Department,\n\n"
-                    f"Our internal audit (LedgerLock) flagged a discrepancy of ${clean_amt} "
-                    f"on {clean_date}.\n\n"
-                    f"Issue: {row['issue']}\n\n"
-                    f"Please review this transaction for a potential credit.\n\n"
-                    f"Reference: LL-{clean_date.replace('-', '')}"
-                )
-                
-                st.text_area("One-Click Dispute Draft", email_body, height=200, key=f"risk_txt_{i}")
+            with st.expander(f"{row['vendor']} - ${row['amount']:,.2f}"):
+                st.write(f"**Issue:** {row['issue']}")
+                st.text_area("Dispute Draft", f"Regarding the ${row['amount']} charge...", key=f"mail_{i}")
     else:
-        st.success("✅ No financial leakage detected. This company ledger is lean.")
+        st.success("✅ No financial leakage detected.")
